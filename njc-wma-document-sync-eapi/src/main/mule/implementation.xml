@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+	<flow name="SendDocumentToClient" doc:id="b2cdd3ce-48cf-436b-86b0-0e322f22f3f6" >
+		<http:listener doc:name="Listener" doc:id="569c3780-a8c3-4042-b3a3-80ea2a9b72c5" config-ref="HTTP_Listener_config" path="/test"/>
+		<ee:transform doc:name="Multipart Form Data" doc:id="f0f58454-47ae-4a99-89b3-af5c0699a55b" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output multipart/form-part
+---
+{
+    "parts": {
+        "RecipientEmail": {
+            "headers": {
+                "Content-Disposition": {
+                    "name": "RecipientEmail",
+                    "subtype": "form-data"
+                }
+            },
+            "content": payload.parts.RecipientEmail.content
+        },
+        "Subject": {
+            "headers": {
+                "Content-Disposition": {
+                    "name": "Subject",
+                    "subtype": "form-data"
+                }
+            },
+            "content": payload.parts.Subject.content
+        },
+        "Body": {
+            "headers": {
+                "Content-Disposition": {
+                    "name": "Body",
+                    "subtype": "form-data"
+                }
+            },
+            "content": payload.parts.Body.content
+        },
+        "DocumentID": {
+            "headers": {
+                "Content-Disposition": {
+                    "name": "DocumentID",
+                    "subtype": "form-data"
+                }
+            },
+            "content": payload.parts.DocumentID.content
+        },
+        "Document": {
+            "headers": {
+                "Content-Disposition": {
+                    "name": "Document",
+                    "filename": payload.parts.Document.headers."Content-Disposition".filename,
+                    "subtype": "form-data"
+                },
+                "Content-Type": "application/pdf"
+            },
+            "content": payload.parts.Document.content
+        },
+        "RecipientName": {
+            "headers": {
+                "Content-Disposition": {
+                    "name": "RecipientName",
+                    "subtype": "form-data"
+                }
+            },
+            "content": payload.parts.RecipientName.content
+        },
+        "RecipientId": {
+            "headers": {
+                "Content-Disposition": {
+                    "name": "RecipientId",
+                    "subtype": "form-data"
+                }
+            },
+            "content": payload.parts.RecipientId.content
+        }
+    }
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<set-variable value="#[payload.parts.RecipientId.content]" doc:name="Client_id" doc:id="147d6859-30dd-4179-868f-a63bad3006e4" variableName="Client_id" />
+		<set-variable value="#[payload.parts.RecipientName.content]" doc:name="Name" doc:id="1e2ce597-29de-4f32-a88e-bd6e0cfad0ba" variableName="Name" />
+		<http:request method="POST" doc:name="Docusign" doc:id="6f20d01d-523f-4357-8619-c9b944120478" url="https://wealth-test-2206-docusign-sapi-dev.us-e2.cloudhub.io/api/document" responseTimeout="300000" target="result" >
+			<error-mapping sourceType="HTTP:BAD_REQUEST" targetType="APP:DOCUSIGN_BAD_REQUEST" />
+			<http:body ><![CDATA[#[output multipart/form-data
+---
+payload]]]></http:body>
+		</http:request>
+		<set-variable value="#[vars.result.envelopeId]" doc:name="envelopeId" doc:id="f1dd55fb-ccee-494d-bd14-afb9643362c3" variableName="envelopeId" />
+		<set-payload value='#["Email Sent Successfully. The Envelope Id is : " ++ (vars.envelopeId as String)]' doc:name="Envelope Id" doc:id="bf101b87-fc94-4ad8-a17c-2d52772f6089" />
+		<logger level="INFO" doc:name="Logger" doc:id="53ae56db-bd84-429a-b5f5-c5bca76ed901" />
+	</flow>
+	<flow name="syncwithS" doc:id="8b442deb-e636-419d-9b1d-a5a5e720200d" >
+		<salesforce:modified-object-listener objectType="DocumentEnvelope" doc:name="On Modified Object" doc:id="497f6141-9a62-4015-9f88-e4f21250bd49" config-ref="Salesforce_Config" >
+			<scheduling-strategy >
+				<fixed-frequency />
+			</scheduling-strategy>
+		</salesforce:modified-object-listener>
+		<ee:transform doc:name="to Json" doc:id="846d931a-bd93-4b01-9114-8216d28d35d7" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<choice doc:name="Choice" doc:id="209233fb-4107-4902-9a23-5719d43efd2a" >
+			<when expression='#[payload.Status == "Completed" and payload.document_url__c == null]' >
+				<set-variable value="#[payload.EnvelopeIdentifier]" doc:name="envelope_id" doc:id="08c03290-18c5-4596-931c-46c41bb1c425" variableName="envelope_id" />
+				<set-variable value="#[payload.Id]" doc:name="document_envelope_id" doc:id="c3acf3d6-90c7-4bdc-9aa6-ad77837f9dd0" variableName="document_envelope_id" />
+				<http:request method="GET" doc:name="GET Document" doc:id="23173c4f-d446-49e5-8bfd-e3db146ae2fa" url="https://wealth-test-2206-docusign-sapi-dev.us-e2.cloudhub.io/api/document" responseTimeout="300000" >
+					<error-mapping sourceType="HTTP:BAD_REQUEST" targetType="APP:S3-BAD-REQUEST" />
+					<http:query-params ><![CDATA[#[output application/java
+---
+{
+	"envelope_id" : payload.EnvelopeIdentifier,
+	"document_id" : payload.Document_id__c
+}]]]></http:query-params>
+				</http:request>
+				<ee:transform doc:name="Transform Message" doc:id="19730141-ef2b-4ed5-8428-1e6977b11b35" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output multipart/form-part
+import * from dw::core::Binaries
+---
+{
+    "parts": {
+    	 "document": {
+            "headers": {
+                "Content-Disposition": {
+                    "name": "document",
+                    "filename":vars.envelope_id ++ "doc.pdf",
+                    "subtype": "form-data"
+                },
+                "Content-Type": payload.^mimeType
+            },
+            "content": payload
+        },
+    }
+    }]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<http:request method="POST" doc:name="Send to S" doc:id="e58def9d-1490-4c07-a3b4-7d92863c85e1" url="http://njc-wma-s3-sapi.us-e2.cloudhub.io/api/document" responseTimeout="300000" >
+					<http:body ><![CDATA[#[output multipart/form-data
+---
+payload]]]></http:body>
+				</http:request>
+				<set-variable value="#[payload.url]" doc:name="url" doc:id="d8a1ce34-3bb6-4138-a189-d6b349ae605a" variableName="url" />
+				<http:request method="PUT" doc:name="Update Document Envelope" doc:id="7cd4b1b0-f6db-47a4-85b3-6a36d033f8bc" url="http://wealth-test-2206-envelope-sapi-dev.us-e2.cloudhub.io/api/envelope/{id}" responseTimeout="300000" >
+					<error-mapping sourceType="HTTP:BAD_REQUEST" targetType="APP:DOC-ENVELOPE-UPDATE-BAD-REQUEST" />
+					<http:uri-params ><![CDATA[#[output application/java
+---
+{
+	"id" : vars.document_envelope_id
+}]]]></http:uri-params>
+				</http:request>
+				<logger level="INFO" doc:name="Logger" doc:id="12c2c3be-befb-48a9-8d3b-fd2d8264a474" />
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Logger" doc:id="16b8ccee-9653-44e8-8da0-2dca9b956f36" message="No updates" />
+			</otherwise>
+		</choice>
+	</flow>
+</mule>
